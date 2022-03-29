@@ -37,15 +37,17 @@ library
     import: common-extensions
     import: common-ghc-options
     exposed-modules: 
-      HaskellCurriculum 
+      HaskellCurriculum
+      HaskellCurriculum.Yesod.Application
     build-depends:    
       base >= 4.13 && <= 4.17
       , containers
       , time
       , bytestring
       , text
-      , optics
       , mtl
+      , transformers
+      , yesod
       
       
 
