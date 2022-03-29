@@ -1,7 +1,8 @@
 module Main where
 
 --import HaskellCurriculum (run)
-import HaskellCurriculum.Yesod.Application
+import HaskellCurriculum.Yesod.Application (appMain)
+import HaskellCurriculum.Intermediate.TypeFamilies (tfMain)
 
 main :: IO ()
-main = appMain
+main = tfMain

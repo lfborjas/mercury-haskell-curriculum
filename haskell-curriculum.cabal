@@ -38,11 +38,14 @@ library
     import: common-ghc-options
     exposed-modules: 
       HaskellCurriculum
+      -- from the Yesod track
       HaskellCurriculum.Yesod.Application
       HaskellCurriculum.Yesod.Foundation
       HaskellCurriculum.Yesod.Orphans
       HaskellCurriculum.Yesod.Handler.Home
       HaskellCurriculum.Yesod.Model.User
+      -- from the Intermediate track
+      HaskellCurriculum.Intermediate.TypeFamilies
 
 
     build-depends:    
@@ -60,6 +63,7 @@ library
       , persistent-template
       , monad-logger
       , aeson
+      , http-conduit
 
       
       
