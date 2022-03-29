@@ -1,19 +1,15 @@
 {-# LANGUAGE TemplateHaskell, QuasiQuotes, TypeFamilies #-}
-
+{-# OPTIONS_GHC -Wno-orphans #-}
 module HaskellCurriculum.Yesod.Application where
 
-import Yesod
+import HaskellCurriculum.Yesod.Foundation
+    ( Route(HomeR), App(..), resourcesApp )
+import Yesod ( warp, mkYesodDispatch )
 
-data App = App
+import HaskellCurriculum.Yesod.Handler.Home ( getHomeR )
 
-instance Yesod App
-
-mkYesod "App" [parseRoutes|
-               / HomeR GET
-                |]
-
-getHomeR :: Handler ()
-getHomeR  = pure ()
+-- NOTE(luis) this generates an orphan instance
+mkYesodDispatch "App" resourcesApp
 
 appMain :: IO ()
 appMain = warp 3000 App
