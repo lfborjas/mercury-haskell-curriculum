@@ -36,8 +36,6 @@ class Monad m => HasApp m where
 getsApp :: (HasApp m) => (App -> a) -> m a
 getsApp = flip fmap getApp
 
-instance Yesod App
-
 instance HasApp (HandlerFor App) where
   getApp = getYesod
 
@@ -68,3 +66,37 @@ mkYesodData "App" [parseRoutes|
                / HomeR GET
                /users/#UserId UserR GET
                 |]
+
+-- From:
+-- https://www.yesodweb.com/book-1.6/authentication-and-authorization
+-- and: https://www.yesodweb.com/book-1.6/yesod-typeclass
+-- note that for /authentication/ there's also @YesodAuth@
+-- where all the auth bits are supposed to happen.
+instance Yesod App where
+  isAuthorized (UserR u) _ = isRequestForSelf u
+  isAuthorized _ _ = pure Authorized
+
+  -- From the tutorial:
+-- https://github.com/MercuryTechnologies/haskell-curriculum/blob/49dea88cac791f514e3f60c5472d0c0481dc4418/tracks/web-development/yesod/Intro.md#the-user
+
+sessionUserId :: MonadHandler m => m (Maybe UserId)
+sessionUserId = (>>= fromPathPiece) <$> lookupBearerAuth
+
+-- NOTE(luis) the tutorial also has some incomplete examples of
+-- how to get this from alternative sources:
+-- https://github.com/MercuryTechnologies/haskell-curriculum/blob/49dea88cac791f514e3f60c5472d0c0481dc4418/tracks/web-development/yesod/Intro.md#the-user
+currentUserId :: Handler (Maybe UserId)
+currentUserId = sessionUserId
+
+requireUserId :: Handler UserId
+requireUserId = do
+  maybeUserId <- currentUserId
+  case maybeUserId of
+    Just uid -> pure uid
+    -- TODO need to require http types for status401 to be available
+    Nothing -> notAuthenticated --sendStatusJSON status401 mempty
+
+-- | Meant to be used in @isAuthorized@ for the Yesod instance.
+isRequestForSelf :: UserId -> Handler AuthResult
+isRequestForSelf requestedUid =
+  requireUserId >>= (\uid -> pure $ if uid == requestedUid then Authorized else Unauthorized "Not allowed")
