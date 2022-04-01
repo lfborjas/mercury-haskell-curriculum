@@ -17,6 +17,7 @@ import Database.Esqueleto.Internal.Internal
 import HaskellCurriculum.Esqueleto.Models
 import Database.Esqueleto.Experimental (case_)
 import Database.Esqueleto.Experimental.ToMaybe (toMaybe)
+import Data.Foldable (traverse_)
 
 -- | Replicating persistent's 'get' in Esqueleto
 get :: (PersistRecordBackend entity SqlBackend) => Key entity -> SqlPersistT IO (Maybe (Entity entity))
@@ -188,3 +189,123 @@ joinOrgsAndTickets =
     (user, morganization) <- usersWithOrganizationsQuery
     ticket <- allTicketsForOrg $ morganization ?. OrganizationId
     pure (user, morganization, ticket)
+
+-- | Demonstration of a CASE expression translated to Esqueleto
+-- NOTE: I had to add a few type annotations, not sure how it works
+-- fine in the example?
+sillyExample :: SqlExpr (Value String)
+sillyExample =
+  case_
+    [ when_ (val (2 :: Int) ==. val 1)
+      then_ (val "hello" )
+    , when_ (val ("a" :: String) ==. val "b")
+      then_ (val "goodbye")
+    ]
+    $ else_ (val "nope")
+
+
+-- Now that we know @case_@, let's write a new helper: @if_@
+if_
+  :: PersistField a
+  => SqlExpr (Value Bool)
+  -- ^ always good form to work in the SQL realm vs. Haskell values:
+  -- you can always go from Haskell to SQL with @val@, but it's hard to stay
+  -- in the Query monad when trying to convert the other way
+  -> SqlExpr (Value a)
+  -- ^ Always remember to "tag" types with Value, to mean a column vs. a raw type
+  -> SqlExpr (Value a)
+  -> SqlExpr (Value a)
+if_ cond ifTrue ifFalse =
+  case_
+    [ when_ cond
+      then_ ifTrue
+    ]
+    $ else_ ifFalse
+
+
+------------------------------------------------------------------------------------
+-- EXERCISES
+------------------------------------------------------------------------------------
+
+-- | Select all tickets that belong to an org
+ticketsForOrganization :: SqlExpr (Value OrganizationId) -> SqlQuery (SqlExpr (Entity Ticket))
+ticketsForOrganization orgId =
+  from $ \ticket -> do
+  where_ $
+    ticket ^. #organization ==. orgId
+  pure ticket
+
+-- | Join orgs with tickets
+organizationsWithTickets :: SqlQuery (SqlExpr (Entity Organization), SqlExpr (Entity Ticket))
+organizationsWithTickets =
+  from $ \(organization `InnerJoin` ticket) -> do
+  on $ ticket ^. #organization ==. organization ^. #id
+  pure (organization, ticket)
+
+-- | Tickets where a user has commented
+userCommentedOnTickets :: SqlExpr (Value UserId) -> SqlQuery (SqlExpr (Entity Ticket))
+userCommentedOnTickets uid =
+  from $ \(user `InnerJoin` ticketComment `InnerJoin` ticket) -> do
+  -- NOTE: interesting that I was forced to use the non-overloadedlabels version here, got ambiguity complaints otherwise
+  on $ ticketComment ^. TicketCommentAuthor  ==. user ^. UserId
+  -- NOTE: but this line worked fine
+  on $ ticketComment ^. #ticket ==. ticket ^. #id
+  where_ $ user ^. #id ==. uid
+  pure ticket
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- AGGREGATIONS
+-- They are sad in Esqueleto.
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- NOTE: the aggregation is a @Maybe@ because the result set may be empty
+totalSold :: SqlPersistT IO Int
+totalSold =
+  fmap conv $
+  select $
+  from $ \sale -> do
+  pure $ sum_ (sale ^. SaleAmount)
+  where
+    conv :: [Value (Maybe Int)] -> Int
+    conv values =
+      case values of
+        [(Value (Just i))] -> i
+        _ -> 0
+
+
+-- EXERCISES AGAIN!
+
+-- | Write a fromMaybe. Hint: COALESCE?
+fromMaybe_
+  :: PersistField a
+  => SqlExpr (Value a)
+  -- ^ default
+  -> SqlExpr (Value (Maybe a))
+  -- ^ actual value
+  -> SqlExpr (Value a)
+  -- ^ coalesce(value,default)
+fromMaybe_ onNothing mval =
+  -- NOTE: could also have been: coalesce [mval, onNothing]
+  -- since the docs say that it'll return the first not-null val
+  -- HACK: I think I cheated here... but, like... how else to do it??
+  -- maybe with like a case?
+  coalesceDefault [mval] onNothing
+
+selectOne' :: SqlSelect a r => SqlQuery a -> SqlPersistT IO (Maybe r)
+selectOne' q =
+  -- NOTE: the limit 1 is an idea from esqueleto itself:
+  -- https://hackage.haskell.org/package/esqueleto-3.5.4.0/docs/src/Database.Esqueleto.Internal.Internal.html#selectOne
+  listToMaybe <$> (select $ limit 1 >> q)
+
+-- NOTE: I /think/ this was the expected approach?
+selectOneMaybe
+  :: PersistField a
+  => SqlQuery (SqlExpr (Value (Maybe a)))
+  -> SqlPersistT IO (Maybe a)
+selectOneMaybe query = do
+  res <- selectOne query
+  pure $ case res of
+    Just (Value (Just a)) -> Just a
+    _ -> Nothing
+
+-- TODO: exercise: deal with Entity/Value tuples. Maybe a new ADT?
