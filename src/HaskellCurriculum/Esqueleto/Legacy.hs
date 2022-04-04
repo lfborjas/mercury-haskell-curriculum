@@ -18,6 +18,9 @@ import HaskellCurriculum.Esqueleto.Models
 import Database.Esqueleto.Experimental (case_)
 import Database.Esqueleto.Experimental.ToMaybe (toMaybe)
 import Data.Foldable (traverse_)
+import Database.Persist.Sql (SqlPersistT)
+import Database.Esqueleto (countRows)
+import Database.Persist.Postgresql (SqlPersistT)
 
 -- | Replicating persistent's 'get' in Esqueleto
 get :: (PersistRecordBackend entity SqlBackend) => Key entity -> SqlPersistT IO (Maybe (Entity entity))
@@ -309,3 +312,105 @@ selectOneMaybe query = do
     _ -> Nothing
 
 -- TODO: exercise: deal with Entity/Value tuples. Maybe a new ADT?
+
+-- | Return both the amount sold and count of all sales
+sumAndCount
+  :: SqlPersistT IO (Maybe (Int, Int))
+sumAndCount =
+  -- NOTE: using conv <$> messes with the precedence, causing a type
+  -- error -- I think because it tries to fmap over select before the
+  -- rest of the expression?
+  fmap conv $
+  select $
+  from $ \sale -> do
+  pure
+    ( fromMaybe_ (val 0) $ sum_ (sale ^. SaleAmount)
+    , countRows
+    )
+  where
+    conv :: [(Value Int, Value Int)] -> Maybe (Int, Int)
+    conv = coerce . listToMaybe
+
+-- | Some buggy behavior: being forced to group by a column
+-- if one wants it in the result set (which means some spurious groupings
+-- sometimes.) Esqueleto does /not/ enforce it, so it can result in
+-- a runtime error
+buyerWithAmountBad :: SqlPersistT IO [(Value CustomerId, Value (Maybe Int))]
+buyerWithAmountBad =
+  select $
+  from $ \sales -> do
+  pure
+    -- NOTE: notice how we had to specify /at least/ the first of these fields,
+    -- vs. using the overloaded label, otherwise it would've been ambiguous.
+    ( sales ^. SaleBuyer
+    , sum_ $ sales ^. #amount
+    )
+
+buyerWithAmountGood :: SqlPersistT IO [(Value CustomerId, Value (Maybe Int))]
+buyerWithAmountGood =
+  select $
+  from $ \sale -> do
+  -- NOTE: to fix the "sql will complain that buyer wasn't used in grouping"
+  groupBy $ sale ^. SaleBuyer
+  pure
+    ( sale ^. #buyer
+    , sum_ $ sale ^. #amount
+    )
+
+buyerWithAmountGood2 :: SqlPersistT IO [(Value CustomerId, Value (Maybe Int))]
+buyerWithAmountGood2 =
+  select $
+  from $ \sale -> do
+  -- NOTE: a little bit of deduplication since we're in do notation
+  let buyer = sale ^. SaleBuyer
+  groupBy buyer
+  pure
+    ( buyer
+    , sum_ $ sale ^. #amount
+    )
+
+-- EXISTS and sub-selects for more complex queries:
+ticketsWithNoAuthorComments
+  :: SqlQuery (SqlExpr (Entity Ticket))
+ticketsWithNoAuthorComments =
+  from $ \ticket -> do
+  where_ $
+    ticket ^. TicketCreator `notIn` do
+      subSelectList $
+        from $ \ticketComment -> do
+        where_ $
+          ticketComment ^. TicketCommentTicket ==. ticket ^. TicketId
+        pure $
+          ticketComment ^. TicketCommentAuthor
+  -- NOTE: this is exactly the same as above, but using @NOT EXISTS@
+  where_ $ notExists $
+    from $ \ticketComment -> do
+    where_ $
+      ticketComment ^. TicketCommentTicket ==. ticket ^. TicketId
+    where_ $
+      ticketComment ^. #author ==. ticket ^. #creator
+
+  pure ticket
+
+-- | EXERCISE! Organizations for which no tickets exist
+orgsNoTickets :: SqlQuery (SqlExpr (Entity Organization))
+orgsNoTickets =
+  from $ \organization -> do
+  where_ $ notExists $
+    from $ \ticket -> do
+    where_ $
+      ticket ^. TicketOrganization  ==. organization ^. OrganizationId
+  pure organization
+
+-- | EXERCISE! Tickets where the creator is not in the org
+ticketsWithCreatorNotInOrg :: SqlQuery (SqlExpr (Entity Ticket))
+ticketsWithCreatorNotInOrg =
+  from $ \(ticket `InnerJoin` organization) -> do
+  on $ ticket ^. TicketOrganization ==. organization ^. OrganizationId
+  where_ $ notExists $
+    from $ \userOrganization -> do
+    where_ $
+      userOrganization ^. UserOrganizationUser ==. ticket ^. TicketCreator
+    where_ $
+      userOrganization ^. UserOrganizationOrganization ==. organization ^. OrganizationId
+  pure ticket
