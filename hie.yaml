@@ -1,0 +1,7 @@
+cradle:
+  cabal:
+    - path: "src"
+      component: "lib:haskell-curriculum"
+
+    - path: "app/Main.hs"
+      component: "haskell-curriculum:exe:haskell-curriculum-exe"

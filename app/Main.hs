@@ -5,4 +5,4 @@ import HaskellCurriculum.Yesod.Application (appMain)
 import HaskellCurriculum.Intermediate.TypeFamilies (tfMain)
 
 main :: IO ()
-main = tfMain
+main = appMain

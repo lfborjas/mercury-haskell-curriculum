@@ -10,9 +10,4 @@ let
 in (super: {
   #servant = super.servant_0_18;
   #servant-server = super.servant-server_0_18;
-  
-  optics = super.optics_0_4;
-  optics-th = super.optics-th_0_4;
-  optics-extra = super.optics-extra_0_4;
-  optics-core= super.optics-core_0_4;
 })

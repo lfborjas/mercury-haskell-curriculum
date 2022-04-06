@@ -59,11 +59,12 @@ library
       , yesod
       , resource-pool
       , persistent-postgresql
-      , persistent
+      , persistent >=2.12
       , persistent-template
       , monad-logger
       , aeson
       , http-conduit
+      , esqueleto
 
       
       
